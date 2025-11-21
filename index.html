@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
-  <title>River Raid Clone - Starter</title>
+  <title>River Raid Clone - V2</title>
   <style>
     html, body { margin:0; padding:0; background:#05060a; overflow:hidden; touch-action:none; }
     canvas { display:block; margin:0 auto; background:#0a0f1f; }
     #hud {
       position:fixed; left:0; top:0; right:0;
       color:#e9eefb; font-family:system-ui, Arial; font-size:14px;
-      padding:8px 10px; display:flex; gap:12px; align-items:center;
+      padding:8px 10px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;
       background:linear-gradient(#0a1020cc, #0a102000);
       user-select:none; pointer-events:none;
     }
+    .hud-item { display:flex; align-items:center; gap:6px; }
     .bar {
       height:8px; width:120px; background:#1b2340; border-radius:999px; overflow:hidden;
       box-shadow: inset 0 0 0 1px #2a3355;
@@ -25,7 +26,7 @@
     }
     #overlay.hidden { display:none; }
     .card {
-      background:#0e1429; border:1px solid #263055; border-radius:16px; padding:18px 20px; width:min(92vw,420px);
+      background:#0e1429; border:1px solid #263055; border-radius:16px; padding:18px 20px; width:min(92vw,460px);
       box-shadow:0 10px 30px #0008;
     }
     button {
@@ -34,26 +35,38 @@
     }
     button:hover { filter:brightness(1.08); }
     .small { opacity:.8; font-size:12px; line-height:1.3; margin-top:6px; }
+    .badge {
+      font-weight:800; font-size:12px; padding:2px 6px; border-radius:8px; background:#1f2b4f;
+    }
   </style>
 </head>
 <body>
   <div id="hud">
-    <div><b>Score:</b> <span id="score">0</span></div>
-    <div style="display:flex;align-items:center;gap:6px;">
+    <div class="hud-item"><b>Score:</b> <span id="score">0</span></div>
+
+    <div class="hud-item">
       <b>Fuel:</b>
       <div class="bar"><div id="fuelFill" class="fill"></div></div>
       <span id="fuelTxt">100%</span>
     </div>
-    <div><b>Vidas:</b> <span id="lives">3</span></div>
+
+    <div class="hud-item"><b>Vidas:</b> <span id="lives">3</span></div>
+    <div class="hud-item"><b>KM:</b> <span id="km">0.0</span></div>
+    <div class="hud-item"><b>Nível:</b> <span id="level">1</span></div>
+
+    <div class="hud-item" id="dualHud" style="display:none;">
+      <span class="badge">TIRO DUPLO</span>
+      <span id="dualTxt">8.0s</span>
+    </div>
   </div>
 
   <div id="overlay">
     <div class="card">
-      <h2 style="margin:0 0 4px 0;">RIVER RAID - STARTER</h2>
-      <p style="margin:0 0 8px 0;">Desvie das margens, destrua inimigos e pegue combustível.</p>
+      <h2 style="margin:0 0 4px 0;">RIVER RAID - V2</h2>
+      <p style="margin:0 0 8px 0;">Pontes, inimigos que atiram e power-up de tiro duplo.</p>
       <div class="small">
         PC: WASD/Setas = mover • ESPAÇO = atirar<br/>
-        Celular: arraste o dedo pra mover • toque com 2 dedos pra atirar
+        Celular: arraste o dedo pra mover • toque duplo rápido pra atirar
       </div>
       <button id="startBtn">JOGAR</button>
     </div>
@@ -66,19 +79,22 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
 
-  const scoreEl = document.getElementById("score");
-  const livesEl = document.getElementById("lives");
-  const fuelFillEl = document.getElementById("fuelFill");
+  const scoreEl   = document.getElementById("score");
+  const livesEl   = document.getElementById("lives");
+  const fuelFillEl= document.getElementById("fuelFill");
   const fuelTxtEl = document.getElementById("fuelTxt");
+  const kmEl      = document.getElementById("km");
+  const levelEl   = document.getElementById("level");
+  const dualHud   = document.getElementById("dualHud");
+  const dualTxtEl = document.getElementById("dualTxt");
+
   const overlay = document.getElementById("overlay");
-  const startBtn = document.getElementById("startBtn");
+  const startBtn= document.getElementById("startBtn");
 
   // --- Responsivo
   function resize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
   }
   window.addEventListener("resize", resize);
   resize();
@@ -86,68 +102,109 @@
   // --- Estado do jogo
   let running = false;
   let lastT = 0;
+
   let score = 0;
+  let distancePx = 0;      // distância em pixels "andados"
+  let distanceKm = 0;      // convertido para KM
+  let level = 1;
 
   const player = {
     x: 0, y: 0, w: 26, h: 34,
     speed: 280,
     lives: 3,
-    fuel: 1, // 0..1
-    invuln: 0
+    fuel: 1,          // 0..1
+    invuln: 0,
+    shootCd: 0,
+    doubleShotTimer: 0
   };
 
-  // bullets, enemies, fuels, river segments
   const bullets = [];
   const enemies = [];
+  const enemyBullets = [];
   const fuels = [];
+  const powerups = [];
+  const bridges = [];
   const river = [];
 
   const settings = {
-    scrollSpeed: 160,
-    riverMinWidth: 0.38, // fração da tela
+    scrollSpeed: 170,
+    riverMinWidth: 0.38,
     riverMaxWidth: 0.62,
     segmentH: 60,
-    enemySpawnEvery: 1.1, // s
-    fuelSpawnEvery: 3.5,  // s
-    difficultyRamp: 0.002 // por segundo
+
+    enemySpawnEvery: 1.05,
+    fuelSpawnEvery: 3.4,
+    powerSpawnEvery: 7.5,
+    bridgeSpawnEvery: 9.0,
+
+    difficultyRamp: 0.003
   };
 
   let enemySpawnTimer = 0;
   let fuelSpawnTimer = 0;
+  let powerSpawnTimer = 0;
+  let bridgeSpawnTimer = 0;
+
+  // --- Util
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function rand(a,b){ return a + Math.random()*(b-a); }
+  function rectsOverlap(a, b){
+    return a.x-a.w/2 < b.x+b.w/2 &&
+           a.x+a.w/2 > b.x-b.w/2 &&
+           a.y-a.h/2 < b.y+b.h/2 &&
+           a.y+a.h/2 > b.y-b.h/2;
+  }
+
+  // encontra o segmento do rio mais próximo do y do player
+  function getSegmentAtY(y){
+    let best = river[0], bestD = Infinity;
+    for (const s of river){
+      const d = Math.abs(s.y - y);
+      if (d < bestD){ bestD = d; best = s; }
+    }
+    return best;
+  }
 
   function resetGame() {
     score = 0;
+    distancePx = 0;
+    distanceKm = 0;
+    level = 1;
+
     player.lives = 3;
     player.fuel = 1;
     player.invuln = 0;
+    player.shootCd = 0;
+    player.doubleShotTimer = 0;
 
     bullets.length = 0;
     enemies.length = 0;
+    enemyBullets.length = 0;
     fuels.length = 0;
+    powerups.length = 0;
+    bridges.length = 0;
     river.length = 0;
 
-    // player no meio inferior
     player.x = canvas.width * 0.5;
     player.y = canvas.height * 0.78;
 
     // cria rio inicial
     const segCount = Math.ceil(canvas.height / settings.segmentH) + 2;
     let center = canvas.width * 0.5;
-    let width = canvas.width * 0.5;
+    let width  = canvas.width * 0.5;
     for (let i = 0; i < segCount; i++) {
       river.push(makeSegment(-i * settings.segmentH, center, width));
-      // variação suave
-      const drift = (Math.random() - 0.5) * canvas.width * 0.08;
+      const drift  = (Math.random() - 0.5) * canvas.width * 0.08;
       center = clamp(center + drift, canvas.width*0.25, canvas.width*0.75);
       const wdrift = (Math.random() - 0.5) * canvas.width * 0.06;
-      width = clamp(width + wdrift, canvas.width*settings.riverMinWidth, canvas.width*settings.riverMaxWidth);
+      width  = clamp(width + wdrift, canvas.width*settings.riverMinWidth, canvas.width*settings.riverMaxWidth);
     }
 
     updateHUD();
   }
 
   function makeSegment(y, center, width) {
-    const left = center - width/2;
+    const left  = center - width/2;
     const right = center + width/2;
     return { y, center, width, left, right };
   }
@@ -155,8 +212,19 @@
   function updateHUD() {
     scoreEl.textContent = Math.floor(score);
     livesEl.textContent = player.lives;
-    fuelFillEl.style.width = `${Math.max(0, Math.min(1, player.fuel))*100}%`;
-    fuelTxtEl.textContent = `${Math.floor(player.fuel*100)}%`;
+
+    fuelFillEl.style.width = `${clamp(player.fuel,0,1)*100}%`;
+    fuelTxtEl.textContent  = `${Math.floor(player.fuel*100)}%`;
+
+    kmEl.textContent = distanceKm.toFixed(1);
+    levelEl.textContent = level;
+
+    if (player.doubleShotTimer > 0){
+      dualHud.style.display = "flex";
+      dualTxtEl.textContent = player.doubleShotTimer.toFixed(1) + "s";
+    } else {
+      dualHud.style.display = "none";
+    }
   }
 
   // --- Input (teclado + touch)
@@ -166,7 +234,6 @@
 
   let touchActive = false;
   let lastTouch = null;
-  let touchShootCooldown = 0;
 
   canvas.addEventListener("pointerdown", (e) => {
     touchActive = true;
@@ -178,8 +245,6 @@
     const dx = e.clientX - lastTouch.x;
     const dy = e.clientY - lastTouch.y;
     lastTouch = { x: e.clientX, y: e.clientY };
-
-    // move player pelo arrasto (sensível)
     player.x += dx * 1.2;
     player.y += dy * 1.2;
   });
@@ -189,9 +254,9 @@
     try { canvas.releasePointerCapture(e.pointerId); } catch {}
   });
 
-  // Dois toques rápidos = atirar
+  // duplo toque = atirar
   let lastTapTime = 0;
-  canvas.addEventListener("click", (e) => {
+  canvas.addEventListener("click", () => {
     const now = performance.now();
     if (now - lastTapTime < 280) {
       shoot();
@@ -202,61 +267,97 @@
   });
 
   function shoot() {
-    bullets.push({
-      x: player.x, y: player.y - player.h/2,
-      vy: -520, r: 3
-    });
-  }
+    if (player.shootCd > 0) return;
+    player.shootCd = 0.16;
 
-  // --- Util
-  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-  function rectsOverlap(a, b){
-    return a.x-a.w/2 < b.x+b.w/2 &&
-           a.x+a.w/2 > b.x-b.w/2 &&
-           a.y-a.h/2 < b.y+b.h/2 &&
-           a.y+a.h/2 > b.y-b.h/2;
+    const isDouble = player.doubleShotTimer > 0;
+    const spread = isDouble ? 7 : 0;
+    const count = isDouble ? 2 : 1;
+
+    for (let i=0;i<count;i++){
+      const offsetX = (i===0 ? -spread : spread);
+      bullets.push({
+        x: player.x + offsetX,
+        y: player.y - player.h/2,
+        vy: -560,
+        r: 3,
+        dmg: 1
+      });
+    }
   }
 
   // --- Spawns
   function spawnEnemy() {
-    // pega segmento do topo (rio)
     const topSeg = river[river.length-1];
     const x = rand(topSeg.left+30, topSeg.right-30);
+    const type = Math.random() < 0.55 ? "boat" : "heli";
     enemies.push({
-      x, y: -20,
+      x, y: -30,
       w: 28, h: 28,
       vy: settings.scrollSpeed * rand(0.6, 1.1),
-      hp: rand(1,2) < 1.5 ? 1 : 2,
-      type: Math.random() < 0.5 ? "boat" : "heli"
+      hp: type==="boat" ? 1 : 2,
+      type,
+      shootCd: rand(0.8, 1.8)
     });
   }
 
   function spawnFuel() {
     const topSeg = river[river.length-1];
     const x = rand(topSeg.left+36, topSeg.right-36);
-    fuels.push({
-      x, y: -20,
-      w: 22, h: 26,
-      vy: settings.scrollSpeed * 0.9
+    fuels.push({ x, y: -25, w: 22, h: 26, vy: settings.scrollSpeed * 0.9 });
+  }
+
+  function spawnPowerup() {
+    const topSeg = river[river.length-1];
+    const x = rand(topSeg.left+40, topSeg.right-40);
+    powerups.push({ x, y:-25, w:22, h:22, vy: settings.scrollSpeed*0.9, type:"double" });
+  }
+
+  function spawnBridge() {
+    const topSeg = river[river.length-1];
+    const width = topSeg.width;
+    const center = topSeg.center;
+
+    const left  = center - width/2;
+    const right = center + width/2;
+
+    bridges.push({
+      y: -80,
+      left, right,
+      deckH: 18,
+      hp: 10 + level*2,
+      destroyed: false,
+      passed: false
     });
   }
 
-  function rand(a,b){ return a + Math.random()*(b-a); }
-
-  // --- Atualização
+  // --- Atualização do jogo
   function update(dt) {
     // rampa de dificuldade
     settings.scrollSpeed += settings.difficultyRamp * dt;
-    settings.enemySpawnEvery = clamp(settings.enemySpawnEvery - 0.0001*dt, 0.55, 2);
+
+    settings.enemySpawnEvery = clamp(settings.enemySpawnEvery - 0.00012*dt, 0.55, 2);
     settings.fuelSpawnEvery  = clamp(settings.fuelSpawnEvery  - 0.00005*dt, 2.0, 5);
+    settings.bridgeSpawnEvery= clamp(settings.bridgeSpawnEvery- 0.00006*dt, 6.0, 12);
+    settings.powerSpawnEvery = clamp(settings.powerSpawnEvery + 0.00002*dt, 6.5, 9);
+
+    // distância / nível
+    distancePx += settings.scrollSpeed * dt;
+    distanceKm = distancePx / 5000; // escala simples
+    const newLevel = Math.floor(distanceKm / 2) + 1; // a cada 2 km, sobe nível
+    if (newLevel > level){
+      level = newLevel;
+      score += 200;
+    }
 
     // combustível cai com tempo
-    player.fuel -= dt * 0.012;
-    if (player.fuel <= 0) {
-      player.fuel = 0;
-      gameOver();
-      return;
-    }
+    player.fuel -= dt * 0.0125;
+    if (player.fuel <= 0) { player.fuel = 0; gameOver(); return; }
+
+    // timers player
+    player.invuln = Math.max(0, player.invuln - dt);
+    player.shootCd = Math.max(0, player.shootCd - dt);
+    player.doubleShotTimer = Math.max(0, player.doubleShotTimer - dt);
 
     // teclado move
     let mx = 0, my = 0;
@@ -266,30 +367,22 @@
     if (keys["ArrowDown"] || keys["KeyS"]) my += 1;
     const len = Math.hypot(mx,my) || 1;
     mx/=len; my/=len;
+
     player.x += mx * player.speed * dt;
     player.y += my * player.speed * dt;
 
     // tiro contínuo no espaço
-    if (keys["Space"]) {
-      // pequeno cooldown
-      if (!player._shootCd) player._shootCd = 0;
-      player._shootCd -= dt;
-      if (player._shootCd <= 0) {
-        shoot();
-        player._shootCd = 0.18;
-      }
-    }
+    if (keys["Space"]) shoot();
 
-    // invulnerável pós-dano
-    player.invuln = Math.max(0, player.invuln - dt);
+    // limita player dentro da tela
+    player.x = clamp(player.x, 10, canvas.width-10);
+    player.y = clamp(player.y, 10, canvas.height-10);
 
     // --- Rio rolando
     for (const seg of river) seg.y += settings.scrollSpeed * dt;
 
-    // remove segmentos que passaram e adiciona no topo
-    while (river.length && river[0].y > canvas.height + settings.segmentH) {
-      river.shift();
-    }
+    while (river.length && river[0].y > canvas.height + settings.segmentH) river.shift();
+
     while (river.length < Math.ceil(canvas.height / settings.segmentH) + 3) {
       const last = river[river.length-1];
       const drift = (Math.random() - 0.5) * canvas.width * 0.1;
@@ -299,38 +392,31 @@
       river.push(makeSegment(last.y - settings.segmentH, nCenter, nWidth));
     }
 
-    // limita player dentro da tela
-    player.x = clamp(player.x, 10, canvas.width-10);
-    player.y = clamp(player.y, 10, canvas.height-10);
-
-    // verifica colisão com margem do rio
-    const segIdx = clamp(Math.floor(player.y / settings.segmentH), 0, river.length-1);
-    const seg = river[segIdx];
+    // colisão player vs margem
+    const seg = getSegmentAtY(player.y);
     if (seg) {
-      if (player.x < seg.left + player.w/2 || player.x > seg.right - player.w/2) {
-        hitPlayer();
-      }
+      if (player.x < seg.left + player.w/2 || player.x > seg.right - player.w/2) hitPlayer();
     }
 
     // --- Bullets
     for (const b of bullets) b.y += b.vy * dt;
-    for (let i=bullets.length-1;i>=0;i--){
-      if (bullets[i].y < -50) bullets.splice(i,1);
-    }
+    for (let i=bullets.length-1;i>=0;i--) if (bullets[i].y < -60) bullets.splice(i,1);
 
     // --- Enemies
     enemySpawnTimer += dt;
-    if (enemySpawnTimer >= settings.enemySpawnEvery) {
-      enemySpawnTimer = 0;
-      spawnEnemy();
-    }
-    for (const e of enemies) e.y += e.vy * dt;
-    for (let i=enemies.length-1;i>=0;i--){
-      const e = enemies[i];
-      if (e.y > canvas.height + 60) enemies.splice(i,1);
-    }
+    if (enemySpawnTimer >= settings.enemySpawnEvery) { enemySpawnTimer = 0; spawnEnemy(); }
 
-    // colisão bullet x enemy
+    for (const e of enemies) {
+      e.y += e.vy * dt;
+      e.shootCd -= dt;
+      if (e.shootCd <= 0 && e.y > 0 && e.y < canvas.height*0.7) {
+        enemyShoot(e);
+        e.shootCd = e.type==="boat" ? rand(1.2, 2.1) : rand(0.8, 1.6);
+      }
+    }
+    for (let i=enemies.length-1;i>=0;i--) if (enemies[i].y > canvas.height + 80) enemies.splice(i,1);
+
+    // bullets vs enemies
     for (let i=enemies.length-1;i>=0;i--){
       const e = enemies[i];
       for (let j=bullets.length-1;j>=0;j--){
@@ -338,19 +424,28 @@
         const br = {x:b.x,y:b.y,w:b.r*2,h:b.r*2};
         if (rectsOverlap({x:e.x,y:e.y,w:e.w,h:e.h}, br)) {
           bullets.splice(j,1);
-          e.hp -= 1;
-          if (e.hp <= 0) {
-            enemies.splice(i,1);
-            score += 50;
-          }
+          e.hp -= b.dmg;
+          if (e.hp <= 0) { enemies.splice(i,1); score += (e.type==="heli"?80:50); }
           break;
         }
       }
     }
 
-    // colisão enemy x player
-    for (const e of enemies) {
-      if (rectsOverlap(player, e)) {
+    // enemies vs player
+    for (const e of enemies) if (rectsOverlap(player, e)) { hitPlayer(); break; }
+
+    // --- Enemy bullets
+    for (const eb of enemyBullets){
+      eb.x += eb.vx * dt;
+      eb.y += eb.vy * dt;
+    }
+    for (let i=enemyBullets.length-1;i>=0;i--){
+      const eb = enemyBullets[i];
+      if (eb.y > canvas.height + 60 || eb.x < -60 || eb.x > canvas.width+60) enemyBullets.splice(i,1);
+    }
+    for (let i=enemyBullets.length-1;i>=0;i--){
+      if (rectsOverlap(player, enemyBullets[i])) {
+        enemyBullets.splice(i,1);
         hitPlayer();
         break;
       }
@@ -358,38 +453,109 @@
 
     // --- Fuel pickups
     fuelSpawnTimer += dt;
-    if (fuelSpawnTimer >= settings.fuelSpawnEvery) {
-      fuelSpawnTimer = 0;
-      spawnFuel();
-    }
+    if (fuelSpawnTimer >= settings.fuelSpawnEvery) { fuelSpawnTimer = 0; spawnFuel(); }
     for (const f of fuels) f.y += f.vy * dt;
+    for (let i=fuels.length-1;i>=0;i--) if (fuels[i].y > canvas.height + 80) fuels.splice(i,1);
     for (let i=fuels.length-1;i>=0;i--){
-      const f = fuels[i];
-      if (f.y > canvas.height + 60) fuels.splice(i,1);
-    }
-    for (let i=fuels.length-1;i>=0;i--){
-      const f = fuels[i];
-      if (rectsOverlap(player, f)) {
+      if (rectsOverlap(player, fuels[i])) {
         fuels.splice(i,1);
         player.fuel = clamp(player.fuel + 0.35, 0, 1);
         score += 10;
       }
     }
 
+    // --- Powerups
+    powerSpawnTimer += dt;
+    if (powerSpawnTimer >= settings.powerSpawnEvery) { powerSpawnTimer = 0; spawnPowerup(); }
+    for (const p of powerups) p.y += p.vy * dt;
+    for (let i=powerups.length-1;i>=0;i--) if (powerups[i].y > canvas.height + 80) powerups.splice(i,1);
+    for (let i=powerups.length-1;i>=0;i--){
+      if (rectsOverlap(player, powerups[i])) {
+        const p = powerups.splice(i,1)[0];
+        if (p.type==="double") {
+          player.doubleShotTimer = 8.0;
+          score += 25;
+        }
+      }
+    }
+
+    // --- Bridges
+    bridgeSpawnTimer += dt;
+    if (bridgeSpawnTimer >= settings.bridgeSpawnEvery) { bridgeSpawnTimer = 0; spawnBridge(); }
+
+    for (const br of bridges) br.y += settings.scrollSpeed * dt;
+
+    // bullets vs bridge
+    for (let i=bridges.length-1;i>=0;i--){
+      const br = bridges[i];
+      if (br.destroyed) continue;
+
+      const deckRect = {
+        x: (br.left+br.right)/2,
+        y: br.y,
+        w: (br.right-br.left),
+        h: br.deckH
+      };
+
+      for (let j=bullets.length-1;j>=0;j--){
+        const b = bullets[j];
+        const brb = {x:b.x,y:b.y,w:b.r*2,h:b.r*2};
+        if (rectsOverlap(deckRect, brb)) {
+          bullets.splice(j,1);
+          br.hp -= 1;
+          if (br.hp <= 0) {
+            br.destroyed = true;
+            score += 200;
+          }
+          break;
+        }
+      }
+
+      // player vs ponte (se não destruída)
+      if (!br.destroyed && rectsOverlap(player, deckRect)) {
+        hitPlayer();
+      }
+    }
+
+    // remove ponte fora da tela e pontua passagem
+    for (let i=bridges.length-1;i>=0;i--){
+      const br = bridges[i];
+      if (br.y > canvas.height + 100) {
+        if (!br.passed && br.destroyed) score += 50; // bônus por passar ponte destruída
+        bridges.splice(i,1);
+      }
+    }
+
     // pontuação por sobrevivência
-    score += dt * 8;
+    score += dt * 9;
 
     updateHUD();
+  }
+
+  function enemyShoot(e){
+    const speed = e.type==="heli" ? 260 : 220;
+    let dx = 0, dy = 1;
+    if (e.type==="heli"){
+      dx = player.x - e.x;
+      dy = player.y - e.y;
+      const len = Math.hypot(dx,dy) || 1;
+      dx /= len; dy /= len;
+    }
+    enemyBullets.push({
+      x: e.x,
+      y: e.y + e.h/2,
+      w: 6, h: 10,
+      vx: dx*speed,
+      vy: dy*speed
+    });
   }
 
   function hitPlayer() {
     if (player.invuln > 0) return;
     player.lives -= 1;
-    player.invuln = 1.2;
-    score = Math.max(0, score - 100);
-    if (player.lives <= 0) {
-      gameOver();
-    }
+    player.invuln = 1.25;
+    score = Math.max(0, score - 120);
+    if (player.lives <= 0) gameOver();
     updateHUD();
   }
 
@@ -397,7 +563,8 @@
     running = false;
     overlay.classList.remove("hidden");
     overlay.querySelector("h2").textContent = "GAME OVER";
-    overlay.querySelector("p").innerHTML = `Score final: <b>${Math.floor(score)}</b>`;
+    overlay.querySelector("p").innerHTML =
+      `Score final: <b>${Math.floor(score)}</b><br/>Distância: <b>${distanceKm.toFixed(1)} km</b>`;
     startBtn.textContent = "JOGAR DE NOVO";
   }
 
@@ -405,20 +572,18 @@
   function draw() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // fundo (terra)
+    // fundo terra
     ctx.fillStyle = "#081025";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // desenha rio (polígono com margens)
+    // rio
     ctx.fillStyle = "#0a3a6a";
     ctx.beginPath();
-    // lado esquerdo
     for (let i=0;i<river.length;i++){
       const s = river[i];
       if (i===0) ctx.moveTo(s.left, s.y);
       else ctx.lineTo(s.left, s.y);
     }
-    // lado direito (volta)
     for (let i=river.length-1;i>=0;i--){
       const s = river[i];
       ctx.lineTo(s.right, s.y);
@@ -426,7 +591,7 @@
     ctx.closePath();
     ctx.fill();
 
-    // bordas do rio
+    // bordas
     ctx.strokeStyle = "#1f2b4f";
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -445,14 +610,15 @@
     }
     ctx.stroke();
 
-    // player (avião)
-    if (player.invuln > 0 && Math.floor(performance.now()/80)%2===0) {
-      // pisca
-    } else {
+    // pontes
+    for (const br of bridges) drawBridge(br);
+
+    // player
+    if (!(player.invuln > 0 && Math.floor(performance.now()/80)%2===0)) {
       drawPlayer(player.x, player.y);
     }
 
-    // bullets
+    // tiros player
     ctx.fillStyle = "#cfe8ff";
     for (const b of bullets) {
       ctx.beginPath();
@@ -460,17 +626,26 @@
       ctx.fill();
     }
 
-    // enemies
+    // inimigos
     for (const e of enemies) drawEnemy(e);
+
+    // tiros inimigos
+    ctx.fillStyle="#ff6b6b";
+    for (const eb of enemyBullets){
+      ctx.fillRect(eb.x-eb.w/2, eb.y-eb.h/2, eb.w, eb.h);
+    }
 
     // fuels
     for (const f of fuels) drawFuel(f);
+
+    // powerups
+    for (const p of powerups) drawPowerup(p);
   }
 
   function drawPlayer(x,y) {
     ctx.save();
     ctx.translate(x,y);
-    // corpo
+
     ctx.fillStyle = "#eaefff";
     ctx.beginPath();
     ctx.moveTo(0, -player.h/2);
@@ -479,18 +654,20 @@
     ctx.lineTo(-player.w/2, player.h/2);
     ctx.closePath();
     ctx.fill();
-    // asa
+
     ctx.fillStyle = "#9fb4ff";
     ctx.fillRect(-player.w/2, 2, player.w, 6);
-    // cockpit
+
     ctx.fillStyle = "#3bd5ff";
     ctx.fillRect(-4, -8, 8, 10);
+
     ctx.restore();
   }
 
   function drawEnemy(e) {
     ctx.save();
     ctx.translate(e.x, e.y);
+
     if (e.type==="boat") {
       ctx.fillStyle="#ff7b5f";
       ctx.fillRect(-e.w/2, -e.h/2, e.w, e.h);
@@ -506,23 +683,59 @@
       ctx.moveTo(-e.w/2,0); ctx.lineTo(e.w/2,0);
       ctx.stroke();
     }
-    // life hint
+
     if (e.hp===2){
       ctx.strokeStyle="#fff";
       ctx.lineWidth=2;
       ctx.strokeRect(-e.w/2-2,-e.h/2-2,e.w+4,e.h+4);
     }
+
     ctx.restore();
   }
 
   function drawFuel(f) {
     ctx.save();
     ctx.translate(f.x, f.y);
+
     ctx.fillStyle="#5bff8a";
     ctx.fillRect(-f.w/2, -f.h/2, f.w, f.h);
     ctx.fillStyle="#0e3b1f";
     ctx.fillRect(-f.w/4, -f.h/4, f.w/2, f.h/2);
+
     ctx.restore();
+  }
+
+  function drawPowerup(p){
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.fillStyle="#a56bff";
+    ctx.beginPath();
+    ctx.arc(0,0,p.w/2,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle="#1c0e3b";
+    ctx.fillRect(-4,-4,8,8);
+    ctx.restore();
+  }
+
+  function drawBridge(br){
+    const cx = (br.left+br.right)/2;
+    const w = br.right - br.left;
+
+    // pilares
+    ctx.fillStyle="#6b4e2e";
+    ctx.fillRect(br.left-10, br.y-18, 12, 36);
+    ctx.fillRect(br.right-2, br.y-18, 12, 36);
+
+    // deck
+    ctx.fillStyle = br.destroyed ? "#2b2b2b" : "#8a693e";
+    ctx.fillRect(cx - w/2, br.y - br.deckH/2, w, br.deckH);
+
+    // “vida” da ponte (linha pequena)
+    if (!br.destroyed){
+      const hpPct = clamp(br.hp / (10 + level*2), 0, 1);
+      ctx.fillStyle="#ffdd99";
+      ctx.fillRect(cx - (w*0.25), br.y - br.deckH/2 - 6, w*0.5*hpPct, 3);
+    }
   }
 
   // --- Game loop
@@ -537,8 +750,8 @@
 
   startBtn.addEventListener("click", () => {
     overlay.classList.add("hidden");
-    overlay.querySelector("h2").textContent = "RIVER RAID - STARTER";
-    overlay.querySelector("p").textContent = "Desvie das margens, destrua inimigos e pegue combustível.";
+    overlay.querySelector("h2").textContent = "RIVER RAID - V2";
+    overlay.querySelector("p").textContent = "Pontes, inimigos que atiram e power-up de tiro duplo.";
     startBtn.textContent = "JOGAR";
 
     resetGame();
