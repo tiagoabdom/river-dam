@@ -63,7 +63,7 @@
   <div id="overlay">
     <div class="card">
       <h2 style="margin:0 0 4px 0;">RIVER RAID - V2</h2>
-      <p style="margin:0 0 8px 0;">Pontes, inimigos que atiram e power-up de tiro duplo.</p>
+      <p style="margin:0 0 8px 0;">Pontes obrigatórias, inimigos que atiram e power-up de tiro duplo.</p>
       <div class="small">
         PC: WASD/Setas = mover • ESPAÇO = atirar<br/>
         Celular: arraste o dedo pra mover • toque duplo rápido pra atirar
@@ -91,7 +91,6 @@
   const overlay = document.getElementById("overlay");
   const startBtn= document.getElementById("startBtn");
 
-  // --- Responsivo
   function resize() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
@@ -99,20 +98,19 @@
   window.addEventListener("resize", resize);
   resize();
 
-  // --- Estado do jogo
   let running = false;
   let lastT = 0;
 
   let score = 0;
-  let distancePx = 0;      // distância em pixels "andados"
-  let distanceKm = 0;      // convertido para KM
+  let distancePx = 0;
+  let distanceKm = 0;
   let level = 1;
 
   const player = {
     x: 0, y: 0, w: 26, h: 34,
     speed: 280,
     lives: 3,
-    fuel: 1,          // 0..1
+    fuel: 1,
     invuln: 0,
     shootCd: 0,
     doubleShotTimer: 0
@@ -145,7 +143,6 @@
   let powerSpawnTimer = 0;
   let bridgeSpawnTimer = 0;
 
-  // --- Util
   function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
   function rand(a,b){ return a + Math.random()*(b-a); }
   function rectsOverlap(a, b){
@@ -155,7 +152,6 @@
            a.y+a.h/2 > b.y-b.h/2;
   }
 
-  // encontra o segmento do rio mais próximo do y do player
   function getSegmentAtY(y){
     let best = river[0], bestD = Infinity;
     for (const s of river){
@@ -163,6 +159,12 @@
       if (d < bestD){ bestD = d; best = s; }
     }
     return best;
+  }
+
+  function makeSegment(y, center, width) {
+    const left  = center - width/2;
+    const right = center + width/2;
+    return { y, center, width, left, right };
   }
 
   function resetGame() {
@@ -188,7 +190,6 @@
     player.x = canvas.width * 0.5;
     player.y = canvas.height * 0.78;
 
-    // cria rio inicial
     const segCount = Math.ceil(canvas.height / settings.segmentH) + 2;
     let center = canvas.width * 0.5;
     let width  = canvas.width * 0.5;
@@ -201,12 +202,6 @@
     }
 
     updateHUD();
-  }
-
-  function makeSegment(y, center, width) {
-    const left  = center - width/2;
-    const right = center + width/2;
-    return { y, center, width, left, right };
   }
 
   function updateHUD() {
@@ -227,7 +222,6 @@
     }
   }
 
-  // --- Input (teclado + touch)
   const keys = {};
   window.addEventListener("keydown", e => { keys[e.code] = true; if(e.code==="Space") e.preventDefault(); });
   window.addEventListener("keyup", e => keys[e.code] = false);
@@ -254,7 +248,6 @@
     try { canvas.releasePointerCapture(e.pointerId); } catch {}
   });
 
-  // duplo toque = atirar
   let lastTapTime = 0;
   canvas.addEventListener("click", () => {
     const now = performance.now();
@@ -286,7 +279,6 @@
     }
   }
 
-  // --- Spawns
   function spawnEnemy() {
     const topSeg = river[river.length-1];
     const x = rand(topSeg.left+30, topSeg.right-30);
@@ -317,7 +309,6 @@
     const topSeg = river[river.length-1];
     const width = topSeg.width;
     const center = topSeg.center;
-
     const left  = center - width/2;
     const right = center + width/2;
 
@@ -331,9 +322,7 @@
     });
   }
 
-  // --- Atualização do jogo
   function update(dt) {
-    // rampa de dificuldade
     settings.scrollSpeed += settings.difficultyRamp * dt;
 
     settings.enemySpawnEvery = clamp(settings.enemySpawnEvery - 0.00012*dt, 0.55, 2);
@@ -341,25 +330,25 @@
     settings.bridgeSpawnEvery= clamp(settings.bridgeSpawnEvery- 0.00006*dt, 6.0, 12);
     settings.powerSpawnEvery = clamp(settings.powerSpawnEvery + 0.00002*dt, 6.5, 9);
 
-    // distância / nível
     distancePx += settings.scrollSpeed * dt;
-    distanceKm = distancePx / 5000; // escala simples
-    const newLevel = Math.floor(distanceKm / 2) + 1; // a cada 2 km, sobe nível
+    distanceKm = distancePx / 5000;
+    const newLevel = Math.floor(distanceKm / 2) + 1;
     if (newLevel > level){
       level = newLevel;
       score += 200;
     }
 
-    // combustível cai com tempo
     player.fuel -= dt * 0.0125;
-    if (player.fuel <= 0) { player.fuel = 0; gameOver(); return; }
+    if (player.fuel <= 0) {
+      player.fuel = 0;
+      gameOver("Seu combustível acabou.");
+      return;
+    }
 
-    // timers player
     player.invuln = Math.max(0, player.invuln - dt);
     player.shootCd = Math.max(0, player.shootCd - dt);
     player.doubleShotTimer = Math.max(0, player.doubleShotTimer - dt);
 
-    // teclado move
     let mx = 0, my = 0;
     if (keys["ArrowLeft"] || keys["KeyA"]) mx -= 1;
     if (keys["ArrowRight"]|| keys["KeyD"]) mx += 1;
@@ -371,14 +360,11 @@
     player.x += mx * player.speed * dt;
     player.y += my * player.speed * dt;
 
-    // tiro contínuo no espaço
     if (keys["Space"]) shoot();
 
-    // limita player dentro da tela
     player.x = clamp(player.x, 10, canvas.width-10);
     player.y = clamp(player.y, 10, canvas.height-10);
 
-    // --- Rio rolando
     for (const seg of river) seg.y += settings.scrollSpeed * dt;
 
     while (river.length && river[0].y > canvas.height + settings.segmentH) river.shift();
@@ -392,17 +378,14 @@
       river.push(makeSegment(last.y - settings.segmentH, nCenter, nWidth));
     }
 
-    // colisão player vs margem
     const seg = getSegmentAtY(player.y);
     if (seg) {
       if (player.x < seg.left + player.w/2 || player.x > seg.right - player.w/2) hitPlayer();
     }
 
-    // --- Bullets
     for (const b of bullets) b.y += b.vy * dt;
     for (let i=bullets.length-1;i>=0;i--) if (bullets[i].y < -60) bullets.splice(i,1);
 
-    // --- Enemies
     enemySpawnTimer += dt;
     if (enemySpawnTimer >= settings.enemySpawnEvery) { enemySpawnTimer = 0; spawnEnemy(); }
 
@@ -416,7 +399,6 @@
     }
     for (let i=enemies.length-1;i>=0;i--) if (enemies[i].y > canvas.height + 80) enemies.splice(i,1);
 
-    // bullets vs enemies
     for (let i=enemies.length-1;i>=0;i--){
       const e = enemies[i];
       for (let j=bullets.length-1;j>=0;j--){
@@ -431,10 +413,8 @@
       }
     }
 
-    // enemies vs player
     for (const e of enemies) if (rectsOverlap(player, e)) { hitPlayer(); break; }
 
-    // --- Enemy bullets
     for (const eb of enemyBullets){
       eb.x += eb.vx * dt;
       eb.y += eb.vy * dt;
@@ -451,7 +431,6 @@
       }
     }
 
-    // --- Fuel pickups
     fuelSpawnTimer += dt;
     if (fuelSpawnTimer >= settings.fuelSpawnEvery) { fuelSpawnTimer = 0; spawnFuel(); }
     for (const f of fuels) f.y += f.vy * dt;
@@ -464,7 +443,6 @@
       }
     }
 
-    // --- Powerups
     powerSpawnTimer += dt;
     if (powerSpawnTimer >= settings.powerSpawnEvery) { powerSpawnTimer = 0; spawnPowerup(); }
     for (const p of powerups) p.y += p.vy * dt;
@@ -479,56 +457,58 @@
       }
     }
 
-    // --- Bridges
     bridgeSpawnTimer += dt;
     if (bridgeSpawnTimer >= settings.bridgeSpawnEvery) { bridgeSpawnTimer = 0; spawnBridge(); }
 
-    for (const br of bridges) br.y += settings.scrollSpeed * dt;
-
-    // bullets vs bridge
     for (let i=bridges.length-1;i>=0;i--){
       const br = bridges[i];
-      if (br.destroyed) continue;
+      br.y += settings.scrollSpeed * dt;
 
+      const cx = (br.left+br.right)/2;
+      const w  = br.right - br.left;
       const deckRect = {
-        x: (br.left+br.right)/2,
+        x: cx,
         y: br.y,
-        w: (br.right-br.left),
+        w: w,
         h: br.deckH
       };
 
-      for (let j=bullets.length-1;j>=0;j--){
-        const b = bullets[j];
-        const brb = {x:b.x,y:b.y,w:b.r*2,h:b.r*2};
-        if (rectsOverlap(deckRect, brb)) {
-          bullets.splice(j,1);
-          br.hp -= 1;
-          if (br.hp <= 0) {
-            br.destroyed = true;
-            score += 200;
+      if (!br.destroyed){
+        for (let j=bullets.length-1;j>=0;j--){
+          const b = bullets[j];
+          const brb = {x:b.x,y:b.y,w:b.r*2,h:b.r*2};
+          if (rectsOverlap(deckRect, brb)) {
+            bullets.splice(j,1);
+            br.hp -= 1;
+            if (br.hp <= 0) {
+              br.destroyed = true;
+              score += 200;
+            }
+            break;
           }
-          break;
         }
       }
 
-      // player vs ponte (se não destruída)
+      if (!br.passed && br.y > player.y + br.deckH/2) {
+        br.passed = true;
+        if (!br.destroyed) {
+          gameOver("Você tentou passar por uma ponte que não foi destruída!");
+          return;
+        } else {
+          score += 50;
+        }
+      }
+
       if (!br.destroyed && rectsOverlap(player, deckRect)) {
         hitPlayer();
       }
-    }
 
-    // remove ponte fora da tela e pontua passagem
-    for (let i=bridges.length-1;i>=0;i--){
-      const br = bridges[i];
       if (br.y > canvas.height + 100) {
-        if (!br.passed && br.destroyed) score += 50; // bônus por passar ponte destruída
         bridges.splice(i,1);
       }
     }
 
-    // pontuação por sobrevivência
     score += dt * 9;
-
     updateHUD();
   }
 
@@ -555,28 +535,29 @@
     player.lives -= 1;
     player.invuln = 1.25;
     score = Math.max(0, score - 120);
-    if (player.lives <= 0) gameOver();
+    if (player.lives <= 0) gameOver("Suas vidas acabaram.");
     updateHUD();
   }
 
-  function gameOver() {
+  function gameOver(reason) {
     running = false;
     overlay.classList.remove("hidden");
-    overlay.querySelector("h2").textContent = "GAME OVER";
-    overlay.querySelector("p").innerHTML =
-      `Score final: <b>${Math.floor(score)}</b><br/>Distância: <b>${distanceKm.toFixed(1)} km</b>`;
+    const h2 = overlay.querySelector("h2");
+    const p  = overlay.querySelector("p");
+    h2.textContent = "GAME OVER";
+    let extra = "";
+    if (reason) extra = "<br/>" + reason;
+    p.innerHTML =
+      `Score final: <b>${Math.floor(score)}</b><br/>Distância: <b>${distanceKm.toFixed(1)} km</b>${extra}`;
     startBtn.textContent = "JOGAR DE NOVO";
   }
 
-  // --- Render
   function draw() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
 
-    // fundo terra
     ctx.fillStyle = "#081025";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // rio
     ctx.fillStyle = "#0a3a6a";
     ctx.beginPath();
     for (let i=0;i<river.length;i++){
@@ -591,7 +572,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // bordas
     ctx.strokeStyle = "#1f2b4f";
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -610,15 +590,12 @@
     }
     ctx.stroke();
 
-    // pontes
     for (const br of bridges) drawBridge(br);
 
-    // player
     if (!(player.invuln > 0 && Math.floor(performance.now()/80)%2===0)) {
       drawPlayer(player.x, player.y);
     }
 
-    // tiros player
     ctx.fillStyle = "#cfe8ff";
     for (const b of bullets) {
       ctx.beginPath();
@@ -626,19 +603,14 @@
       ctx.fill();
     }
 
-    // inimigos
     for (const e of enemies) drawEnemy(e);
 
-    // tiros inimigos
     ctx.fillStyle="#ff6b6b";
     for (const eb of enemyBullets){
       ctx.fillRect(eb.x-eb.w/2, eb.y-eb.h/2, eb.w, eb.h);
     }
 
-    // fuels
     for (const f of fuels) drawFuel(f);
-
-    // powerups
     for (const p of powerups) drawPowerup(p);
   }
 
@@ -721,16 +693,13 @@
     const cx = (br.left+br.right)/2;
     const w = br.right - br.left;
 
-    // pilares
     ctx.fillStyle="#6b4e2e";
     ctx.fillRect(br.left-10, br.y-18, 12, 36);
     ctx.fillRect(br.right-2, br.y-18, 12, 36);
 
-    // deck
     ctx.fillStyle = br.destroyed ? "#2b2b2b" : "#8a693e";
     ctx.fillRect(cx - w/2, br.y - br.deckH/2, w, br.deckH);
 
-    // “vida” da ponte (linha pequena)
     if (!br.destroyed){
       const hpPct = clamp(br.hp / (10 + level*2), 0, 1);
       ctx.fillStyle="#ffdd99";
@@ -738,7 +707,33 @@
     }
   }
 
-  // --- Game loop
+  function enemyShoot(e){
+    const speed = e.type==="heli" ? 260 : 220;
+    let dx = 0, dy = 1;
+    if (e.type==="heli"){
+      dx = player.x - e.x;
+      dy = player.y - e.y;
+      const len = Math.hypot(dx,dy) || 1;
+      dx /= len; dy /= len;
+    }
+    enemyBullets.push({
+      x: e.x,
+      y: e.y + e.h/2,
+      w: 6, h: 10,
+      vx: dx*speed,
+      vy: dy*speed
+    });
+  }
+
+  function hitPlayer() {
+    if (player.invuln > 0) return;
+    player.lives -= 1;
+    player.invuln = 1.25;
+    score = Math.max(0, score - 120);
+    if (player.lives <= 0) gameOver("Suas vidas acabaram.");
+    updateHUD();
+  }
+
   function loop(t) {
     if (!running) return;
     const dt = Math.min(0.033, (t-lastT)/1000);
@@ -751,7 +746,8 @@
   startBtn.addEventListener("click", () => {
     overlay.classList.add("hidden");
     overlay.querySelector("h2").textContent = "RIVER RAID - V2";
-    overlay.querySelector("p").textContent = "Pontes, inimigos que atiram e power-up de tiro duplo.";
+    overlay.querySelector("p").textContent =
+      "Pontes obrigatórias, inimigos que atiram e power-up de tiro duplo.";
     startBtn.textContent = "JOGAR";
 
     resetGame();
