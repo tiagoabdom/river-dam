@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
-  <title>River Raid Clone - V2.1</title>
+  <title>River Raid Clone - V2.2 Sprites</title>
   <style>
     html, body { margin:0; padding:0; background:#05060a; overflow:hidden; touch-action:none; }
     canvas { display:block; margin:0 auto; background:#0a0f1f; }
@@ -62,8 +62,8 @@
 
   <div id="overlay">
     <div class="card">
-      <h2 style="margin:0 0 4px 0;">RIVER RAID - V2.1</h2>
-      <p style="margin:0 0 8px 0;">Pontes obrigatórias, inimigos que atiram e tiro duplo.</p>
+      <h2 style="margin:0 0 4px 0;">RIVER RAID - V2.2</h2>
+      <p style="margin:0 0 8px 0;">Sprites PNG ativados (com fallback automático).</p>
       <div class="small">
         PC: WASD/Setas = mover • ESPAÇO = atirar<br/>
         Celular: arraste o dedo pra mover • toque duplo rápido pra atirar
@@ -232,6 +232,43 @@
     }
   }
 
+  // -------------------- SPRITES --------------------
+  const SPRITE_PATH = "assets/";
+  const spriteManifest = {
+    player: "player.png",
+    boat: "boat.png",
+    heli: "heli.png",
+    fuel: "fuel.png",
+    powerDouble: "power_double.png",
+    bridge: "bridge.png",
+    bridgePillar: "bridge_pillar.png",
+    bullet: "bullet.png",
+    enemyBullet: "enemy_bullet.png"
+  };
+
+  const sprites = {};
+  const spriteOk = {};
+
+  function loadImage(key, src){
+    return new Promise(res=>{
+      const img = new Image();
+      img.onload  = () => res([key, img, true]);
+      img.onerror = () => res([key, img, false]);
+      img.src = src;
+    });
+  }
+
+  async function preloadSprites(){
+    const entries = Object.entries(spriteManifest);
+    const results = await Promise.all(entries.map(([k,f])=>loadImage(k, SPRITE_PATH+f)));
+    for (const [k,img,ok] of results){
+      sprites[k]=img; spriteOk[k]=ok;
+    }
+  }
+  preloadSprites();
+  // -------------------------------------------------
+
+  // input
   const keys = {};
   window.addEventListener("keydown", e => { keys[e.code] = true; if(e.code==="Space") e.preventDefault(); });
   window.addEventListener("keyup", e => keys[e.code] = false);
@@ -542,7 +579,6 @@
       const w  = br.right - br.left;
       const deckRect = { x: cx, y: br.y, w: w, h: br.deckH };
 
-      // bullets vs ponte
       if (!br.destroyed){
         for (let j=bullets.length-1;j>=0;j--){
           const b = bullets[j];
@@ -556,7 +592,6 @@
         }
       }
 
-      // passou da ponte -> obrigatória destruída
       if (!br.passed && br.y > player.y + br.deckH/2) {
         br.passed = true;
         if (!br.destroyed) {
@@ -567,19 +602,19 @@
         }
       }
 
-      // colisão física com deck (antes de destruir)
       if (!br.destroyed && rectsOverlap(player, deckRect)) hitPlayer();
-
       if (br.y > canvas.height + 100) bridges.splice(i,1);
     }
 
-    // score por sobrevivência
     score += dt * 9;
     updateHUD();
   }
 
+  // -------------------- DRAW COM SPRITES --------------------
   function draw() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // fundo terra
     ctx.fillStyle = "#081025";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -608,7 +643,6 @@
       else ctx.lineTo(s.left, s.y);
     }
     ctx.stroke();
-
     ctx.beginPath();
     for (let i=0;i<river.length;i++){
       const s = river[i];
@@ -624,21 +658,13 @@
     if (!(player.invuln > 0 && Math.floor(performance.now()/80)%2===0)) drawPlayer(player.x, player.y);
 
     // tiros player
-    ctx.fillStyle = "#cfe8ff";
-    for (const b of bullets){
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
-      ctx.fill();
-    }
+    for (const b of bullets) drawPlayerBullet(b);
 
     // inimigos
     for (const e of enemies) drawEnemy(e);
 
     // tiros inimigos
-    ctx.fillStyle="#ff6b6b";
-    for (const eb of enemyBullets){
-      ctx.fillRect(eb.x-eb.w/2, eb.y-eb.h/2, eb.w, eb.h);
-    }
+    for (const eb of enemyBullets) drawEnemyBullet(eb);
 
     // fuels e powerups
     for (const f of fuels) drawFuel(f);
@@ -647,48 +673,81 @@
 
   function drawPlayer(x,y){
     ctx.save(); ctx.translate(x,y);
-    ctx.fillStyle = "#eaefff";
-    ctx.beginPath();
-    ctx.moveTo(0, -player.h/2);
-    ctx.lineTo(player.w/2, player.h/2);
-    ctx.lineTo(0, player.h/3);
-    ctx.lineTo(-player.w/2, player.h/2);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = "#9fb4ff"; ctx.fillRect(-player.w/2, 2, player.w, 6);
-    ctx.fillStyle = "#3bd5ff"; ctx.fillRect(-4, -8, 8, 10);
+
+    if (spriteOk.player){
+      const scale = 1.6;
+      ctx.drawImage(
+        sprites.player,
+        -player.w*scale/2, -player.h*scale/2,
+        player.w*scale, player.h*scale
+      );
+    } else {
+      // fallback
+      ctx.fillStyle = "#eaefff";
+      ctx.beginPath();
+      ctx.moveTo(0, -player.h/2);
+      ctx.lineTo(player.w/2, player.h/2);
+      ctx.lineTo(0, player.h/3);
+      ctx.lineTo(-player.w/2, player.h/2);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#9fb4ff"; ctx.fillRect(-player.w/2, 2, player.w, 6);
+      ctx.fillStyle = "#3bd5ff"; ctx.fillRect(-4, -8, 8, 10);
+    }
+
     ctx.restore();
   }
 
   function drawEnemy(e){
     ctx.save(); ctx.translate(e.x,e.y);
-    if (e.type==="boat"){
-      ctx.fillStyle="#ff7b5f"; ctx.fillRect(-e.w/2, -e.h/2, e.w, e.h);
-      ctx.fillStyle="#5a1b1b"; ctx.fillRect(-e.w/4, -e.h/2, e.w/2, e.h/2);
+
+    if (e.type==="boat" && spriteOk.boat){
+      const s = 1.4;
+      ctx.drawImage(sprites.boat, -e.w*s/2, -e.h*s/2, e.w*s, e.h*s);
+    } else if (e.type==="heli" && spriteOk.heli){
+      const s = 1.5;
+      ctx.drawImage(sprites.heli, -e.w*s/2, -e.h*s/2, e.w*s, e.h*s);
     } else {
-      ctx.fillStyle="#ffd34d";
-      ctx.beginPath(); ctx.arc(0,0,e.w/2,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle="#7a5b00";
-      ctx.beginPath(); ctx.moveTo(-e.w/2,0); ctx.lineTo(e.w/2,0); ctx.stroke();
+      // fallback
+      if (e.type==="boat"){
+        ctx.fillStyle="#ff7b5f"; ctx.fillRect(-e.w/2, -e.h/2, e.w, e.h);
+        ctx.fillStyle="#5a1b1b"; ctx.fillRect(-e.w/4, -e.h/2, e.w/2, e.h/2);
+      } else {
+        ctx.fillStyle="#ffd34d";
+        ctx.beginPath(); ctx.arc(0,0,e.w/2,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle="#7a5b00";
+        ctx.beginPath(); ctx.moveTo(-e.w/2,0); ctx.lineTo(e.w/2,0); ctx.stroke();
+      }
     }
-    if (e.hp===2){
-      ctx.strokeStyle="#fff"; ctx.lineWidth=2;
-      ctx.strokeRect(-e.w/2-2,-e.h/2-2,e.w+4,e.h+4);
-    }
+
     ctx.restore();
   }
 
   function drawFuel(f){
     ctx.save(); ctx.translate(f.x,f.y);
-    ctx.fillStyle="#5bff8a"; ctx.fillRect(-f.w/2, -f.h/2, f.w, f.h);
-    ctx.fillStyle="#0e3b1f"; ctx.fillRect(-f.w/4, -f.h/4, f.w/2, f.h/2);
+
+    if (spriteOk.fuel){
+      const s = 1.3;
+      ctx.drawImage(sprites.fuel, -f.w*s/2, -f.h*s/2, f.w*s, f.h*s);
+    } else {
+      ctx.fillStyle="#5bff8a"; ctx.fillRect(-f.w/2, -f.h/2, f.w, f.h);
+      ctx.fillStyle="#0e3b1f"; ctx.fillRect(-f.w/4, -f.h/4, f.w/2, f.h/2);
+    }
+
     ctx.restore();
   }
 
   function drawPowerup(p){
     ctx.save(); ctx.translate(p.x,p.y);
-    ctx.fillStyle="#a56bff";
-    ctx.beginPath(); ctx.arc(0,0,p.w/2,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle="#1c0e3b"; ctx.fillRect(-4,-4,8,8);
+
+    if (spriteOk.powerDouble){
+      const s = 1.4;
+      ctx.drawImage(sprites.powerDouble, -p.w*s/2, -p.h*s/2, p.w*s, p.h*s);
+    } else {
+      ctx.fillStyle="#a56bff";
+      ctx.beginPath(); ctx.arc(0,0,p.w/2,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#1c0e3b"; ctx.fillRect(-4,-4,8,8);
+    }
+
     ctx.restore();
   }
 
@@ -696,13 +755,29 @@
     const cx = (br.left+br.right)/2;
     const w = br.right - br.left;
 
-    ctx.fillStyle="#6b4e2e";
-    ctx.fillRect(br.left-10, br.y-18, 12, 36);
-    ctx.fillRect(br.right-2, br.y-18, 12, 36);
+    // pilares
+    if (spriteOk.bridgePillar){
+      const pillarW = 18, pillarH = 60;
+      ctx.drawImage(sprites.bridgePillar, br.left-12, br.y-pillarH/2, pillarW, pillarH);
+      ctx.drawImage(sprites.bridgePillar, br.right-6, br.y-pillarH/2, pillarW, pillarH);
+    } else {
+      ctx.fillStyle="#6b4e2e";
+      ctx.fillRect(br.left-10, br.y-18, 12, 36);
+      ctx.fillRect(br.right-2, br.y-18, 12, 36);
+    }
 
-    ctx.fillStyle = br.destroyed ? "#2b2b2b" : "#8a693e";
-    ctx.fillRect(cx - w/2, br.y - br.deckH/2, w, br.deckH);
+    // deck
+    if (spriteOk.bridge){
+      const deckH = br.deckH*2.2;
+      ctx.globalAlpha = br.destroyed ? 0.5 : 1;
+      ctx.drawImage(sprites.bridge, cx - w/2, br.y - deckH/2, w, deckH);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = br.destroyed ? "#2b2b2b" : "#8a693e";
+      ctx.fillRect(cx - w/2, br.y - br.deckH/2, w, br.deckH);
+    }
 
+    // barrinha de vida
     if (!br.destroyed){
       const hpBase = (10 + level*2);
       const hpPct = clamp(br.hp / hpBase, 0, 1);
@@ -711,12 +786,34 @@
     }
   }
 
+  function drawPlayerBullet(b){
+    if (spriteOk.bullet){
+      const w = 8, h = 16;
+      ctx.drawImage(sprites.bullet, b.x-w/2, b.y-h/2, w, h);
+    } else {
+      ctx.fillStyle = "#cfe8ff";
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function drawEnemyBullet(eb){
+    if (spriteOk.enemyBullet){
+      const w = 8, h = 16;
+      ctx.drawImage(sprites.enemyBullet, eb.x-w/2, eb.y-h/2, w, h);
+    } else {
+      ctx.fillStyle="#ff6b6b";
+      ctx.fillRect(eb.x-eb.w/2, eb.y-eb.h/2, eb.w, eb.h);
+    }
+  }
+  // ------------------------------------------------------------
+
   function loop(t){
     if (!running) return;
     const dt = Math.min(0.033, (t-lastT)/1000);
     lastT = t;
 
-    // se der erro, não trava silentemente
     try {
       update(dt);
       draw();
@@ -731,9 +828,9 @@
 
   startBtn.addEventListener("click", () => {
     overlay.classList.add("hidden");
-    overlay.querySelector("h2").textContent = "RIVER RAID - V2.1";
+    overlay.querySelector("h2").textContent = "RIVER RAID - V2.2";
     overlay.querySelector("p").textContent =
-      "Pontes obrigatórias, inimigos que atiram e tiro duplo.";
+      "Sprites PNG ativados (com fallback automático).";
     startBtn.textContent = "JOGAR";
 
     resetGame();
